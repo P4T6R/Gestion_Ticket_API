@@ -6,6 +6,18 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property int $id
+ * @property string $nom
+ * @property string $adresse
+ * @property string|null $telephone
+ * @property string|null $email
+ * @property string $heure_ouverture
+ * @property string $heure_fermeture
+ * @property bool $active
+ * @property \Carbon\Carbon|null $created_at
+ * @property \Carbon\Carbon|null $updated_at
+ */
 class Agence extends Model
 {
     use HasFactory;
@@ -36,8 +48,6 @@ class Agence extends Model
         'latitude' => 'decimal:8',
         'longitude' => 'decimal:8',
         'jours_ouverture' => 'array',
-        'heure_ouverture' => 'datetime:H:i',
-        'heure_fermeture' => 'datetime:H:i',
     ];
 
     /**
@@ -93,10 +103,17 @@ class Agence extends Model
             return false;
         }
 
-        // Convertir les heures en format comparable
+        // Convertir les heures en format comparable (HH:MM:SS)
         $heureActuelle = $maintenant->format('H:i:s');
-        $heureOuverture = is_string($this->heure_ouverture) ? $this->heure_ouverture : $this->heure_ouverture->format('H:i:s');
-        $heureFermeture = is_string($this->heure_fermeture) ? $this->heure_fermeture : $this->heure_fermeture->format('H:i:s');
+        
+        // Extraire juste l'heure des champs time
+        $heureOuverture = is_string($this->heure_ouverture) 
+            ? $this->heure_ouverture 
+            : substr($this->heure_ouverture, 0, 8); // Pour extraire HH:MM:SS du datetime
+            
+        $heureFermeture = is_string($this->heure_fermeture) 
+            ? $this->heure_fermeture 
+            : substr($this->heure_fermeture, 0, 8); // Pour extraire HH:MM:SS du datetime
         
         return $heureActuelle >= $heureOuverture && $heureActuelle <= $heureFermeture;
     }

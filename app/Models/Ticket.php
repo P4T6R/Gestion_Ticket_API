@@ -8,6 +8,24 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Carbon\Carbon;
 
+/**
+ * @property int $id
+ * @property string $numero
+ * @property string $service
+ * @property string $statut
+ * @property int $agence_id
+ * @property int|null $agent_id
+ * @property string|null $guichet
+ * @property float|null $client_latitude
+ * @property float|null $client_longitude
+ * @property \Carbon\Carbon $heure_creation
+ * @property \Carbon\Carbon|null $heure_appel
+ * @property \Carbon\Carbon|null $heure_fin
+ * @property int|null $temps_attente
+ * @property string|null $notes
+ * @property \Carbon\Carbon|null $created_at
+ * @property \Carbon\Carbon|null $updated_at
+ */
 class Ticket extends Model
 {
     use HasFactory;
@@ -102,13 +120,26 @@ class Ticket extends Model
 
         $prefixe = $prefixes[$service] ?? 'GE'; // GE = Général
 
-        // Compter les tickets créés aujourd'hui pour cette agence et ce service
-        $compteur = self::where('agence_id', $agenceId)
-            ->where('service', $service)
-            ->whereDate('heure_creation', Carbon::today())
-            ->count() + 1;
+        // Compter tous les tickets avec ce préfixe pour garantir l'unicité globale
+        $compteur = 1;
+        $numeroTente = '';
+        
+        do {
+            $numeroTente = $prefixe . str_pad($compteur, 3, '0', STR_PAD_LEFT);
+            $existe = self::where('numero', $numeroTente)->exists();
+            
+            if (!$existe) {
+                break;
+            }
+            
+            $compteur++;
+        } while ($compteur <= 9999); // Limite de sécurité
 
-        return $prefixe . str_pad($compteur, 3, '0', STR_PAD_LEFT);
+        if ($compteur > 9999) {
+            throw new \Exception("Impossible de générer un numéro unique pour le service $service");
+        }
+
+        return $numeroTente;
     }
 
     /**

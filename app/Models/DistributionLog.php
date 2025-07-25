@@ -6,6 +6,17 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property int $id
+ * @property int $ticket_id
+ * @property int $agent_id
+ * @property int $agence_id
+ * @property string|null $guichet
+ * @property string $type_action
+ * @property string|null $commentaire
+ * @property \Carbon\Carbon|null $created_at
+ * @property \Carbon\Carbon|null $updated_at
+ */
 class DistributionLog extends Model
 {
     use HasFactory;

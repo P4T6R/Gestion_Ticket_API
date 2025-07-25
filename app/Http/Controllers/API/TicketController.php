@@ -25,7 +25,7 @@ class TicketController extends Controller
         ]);
 
         // Vérifier que l'agence est ouverte
-        $agence = Agence::findOrFail($request->agence_id);
+        $agence = Agence::findOrFail($request->input('agence_id'));
         
         if (!$agence->estOuverte()) {
             return response()->json([
@@ -33,21 +33,21 @@ class TicketController extends Controller
                 'horaires' => [
                     'ouverture' => $agence->heure_ouverture,
                     'fermeture' => $agence->heure_fermeture,
-                    'jours_ouverture' => $agence->jours_ouverture,
+                    'jours_ouverture' => $agence->jours_ouverture ?? [],
                 ]
             ], 422);
         }
 
         // Générer le numéro de ticket
-        $numeroTicket = Ticket::genererNumero($request->agence_id, $request->service);
+        $numeroTicket = Ticket::genererNumero($request->input('agence_id'), $request->input('service'));
 
         // Créer le ticket
         $ticket = Ticket::create([
             'numero' => $numeroTicket,
-            'service' => $request->service,
-            'agence_id' => $request->agence_id,
-            'client_latitude' => $request->client_latitude,
-            'client_longitude' => $request->client_longitude,
+            'service' => $request->input('service'),
+            'agence_id' => $request->input('agence_id'),
+            'client_latitude' => $request->input('client_latitude'),
+            'client_longitude' => $request->input('client_longitude'),
             'heure_creation' => now(),
         ]);
 
@@ -83,12 +83,12 @@ class TicketController extends Controller
             'service' => 'nullable|string|in:payement_factures,depot_retrait,transfert,conseil_clientele',
         ]);
 
-        $query = Ticket::where('agence_id', $request->agence_id)
+        $query = Ticket::where('agence_id', $request->input('agence_id'))
             ->where('statut', 'en_attente')
             ->orderBy('heure_creation');
 
-        if ($request->service) {
-            $query->where('service', $request->service);
+        if ($request->input('service')) {
+            $query->where('service', $request->input('service'));
         }
 
         $tickets = $query->with('agence')->get();
@@ -98,7 +98,7 @@ class TicketController extends Controller
         $tempsAttenteMoyen = $totalEnAttente > 0 ? ($totalEnAttente * 5) : 0; // 5 min par ticket
 
         // Tickets actuellement en cours
-        $ticketsEnCours = Ticket::where('agence_id', $request->agence_id)
+        $ticketsEnCours = Ticket::where('agence_id', $request->input('agence_id'))
             ->where('statut', 'en_cours')
             ->with(['agent'])
             ->get();
@@ -143,7 +143,7 @@ class TicketController extends Controller
         ]);
 
         $ticket = Ticket::where('numero', $numero)
-            ->where('agence_id', $request->agence_id)
+            ->where('agence_id', $request->input('agence_id'))
             ->with(['agence', 'agent'])
             ->first();
 
@@ -206,7 +206,7 @@ class TicketController extends Controller
         ]);
 
         $ticket = Ticket::where('numero', $numero)
-            ->where('agence_id', $request->agence_id)
+            ->where('agence_id', $request->input('agence_id'))
             ->where('statut', 'en_attente')
             ->first();
 

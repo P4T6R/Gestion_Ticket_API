@@ -70,7 +70,9 @@ class AuthController extends Controller
     public function logout(Request $request): JsonResponse
     {
         // Supprimer le token actuel
-        $request->user()->currentAccessToken()->delete();
+        /** @var \Laravel\Sanctum\PersonalAccessToken $token */
+        $token = $request->user()->currentAccessToken();
+        $token->delete();
 
         return response()->json([
             'message' => 'Déconnexion réussie'
@@ -115,7 +117,7 @@ class AuthController extends Controller
         $user = $request->user();
 
         // Vérifier l'ancien mot de passe
-        if (!Hash::check($request->current_password, $user->getAuthPassword())) {
+        if (!Hash::check($request->input('current_password'), $user->getAuthPassword())) {
             throw ValidationException::withMessages([
                 'current_password' => ['Le mot de passe actuel est incorrect.'],
             ]);
@@ -123,7 +125,7 @@ class AuthController extends Controller
 
         // Mettre à jour le mot de passe
         $user->update([
-            'password' => Hash::make($request->new_password)
+            'password' => Hash::make($request->input('new_password'))
         ]);
 
         return response()->json([

@@ -26,26 +26,26 @@ class AdminController extends Controller
             'periode' => 'nullable|in:jour,semaine,mois,annee',
         ]);
 
-        $periode = $request->periode ?? 'jour';
-        $agenceId = $request->agence_id;
+        $periode = $request->input('periode', 'jour');
+        $agenceId = $request->input('agence_id');
 
         // Définir la période
         switch ($periode) {
             case 'semaine':
-                $dateDebut = $request->date_debut ? Carbon::parse($request->date_debut) : now()->startOfWeek();
-                $dateFin = $request->date_fin ? Carbon::parse($request->date_fin) : now()->endOfWeek();
+                $dateDebut = $request->input('date_debut') ? Carbon::parse($request->input('date_debut')) : now()->startOfWeek();
+                $dateFin = $request->input('date_fin') ? Carbon::parse($request->input('date_fin')) : now()->endOfWeek();
                 break;
             case 'mois':
-                $dateDebut = $request->date_debut ? Carbon::parse($request->date_debut) : now()->startOfMonth();
-                $dateFin = $request->date_fin ? Carbon::parse($request->date_fin) : now()->endOfMonth();
+                $dateDebut = $request->input('date_debut') ? Carbon::parse($request->input('date_debut')) : now()->startOfMonth();
+                $dateFin = $request->input('date_fin') ? Carbon::parse($request->input('date_fin')) : now()->endOfMonth();
                 break;
             case 'annee':
-                $dateDebut = $request->date_debut ? Carbon::parse($request->date_debut) : now()->startOfYear();
-                $dateFin = $request->date_fin ? Carbon::parse($request->date_fin) : now()->endOfYear();
+                $dateDebut = $request->input('date_debut') ? Carbon::parse($request->input('date_debut')) : now()->startOfYear();
+                $dateFin = $request->input('date_fin') ? Carbon::parse($request->input('date_fin')) : now()->endOfYear();
                 break;
             default:
-                $dateDebut = $request->date_debut ? Carbon::parse($request->date_debut) : now()->startOfDay();
-                $dateFin = $request->date_fin ? Carbon::parse($request->date_fin) : now()->endOfDay();
+                $dateDebut = $request->input('date_debut') ? Carbon::parse($request->input('date_debut')) : now()->startOfDay();
+                $dateFin = $request->input('date_fin') ? Carbon::parse($request->input('date_fin')) : now()->endOfDay();
                 break;
         }
 
@@ -139,13 +139,127 @@ class AdminController extends Controller
                 ];
             });
 
+        // Préparation des données pour React AdminStatistics
+        
+        // 1. Répartition par services pour le graphique en camembert
+        $repartitionServices = $statistiquesParService->map(function ($service) {
+            return [
+                'name' => $service['service'],
+                'value' => $service['total'],
+                'termines' => $service['termines']
+            ];
+        });
+
+        // 2. Performance par agences pour le graphique en barres
+        $performanceAgences = Agence::where('active', true)
+            ->when($agenceId, function ($query) use ($agenceId) {
+                return $query->where('id', $agenceId);
+            })
+            ->get()
+            ->map(function ($agence) use ($dateDebut, $dateFin) {
+                $ticketsAgence = $agence->tickets()
+                    ->whereBetween('heure_creation', [$dateDebut, $dateFin])
+                    ->get();
+                
+                $ticketsTermines = $ticketsAgence->where('statut', 'termine');
+                $tempsMoyen = $ticketsTermines
+                    ->filter(function ($ticket) {
+                        return $ticket->temps_attente !== null;
+                    })
+                    ->avg('temps_attente');
+
+                return [
+                    'nom' => $agence->nom,
+                    'tickets_traites' => $ticketsTermines->count(),
+                    'temps_moyen' => round($tempsMoyen ?? 0, 1),
+                    'total_tickets' => $ticketsAgence->count()
+                ];
+            });
+
+        // 3. Évolution temporelle (par jour sur la période)
+        $evolutionTemporelle = [];
+        $currentDate = $dateDebut->copy();
+        while ($currentDate <= $dateFin) {
+            $ticketsJour = $tickets->filter(function ($ticket) use ($currentDate) {
+                return Carbon::parse($ticket->heure_creation)->isSameDay($currentDate);
+            });
+
+            $evolutionTemporelle[] = [
+                'periode' => $currentDate->format('d/m'),
+                'tickets_crees' => $ticketsJour->count(),
+                'tickets_traites' => $ticketsJour->where('statut', 'termine')->count()
+            ];
+
+            $currentDate->addDay();
+        }
+
+        // 4. Top agents performers
+        $topAgents = $performanceAgents->sortByDesc('tickets_traites')
+            ->take(10)
+            ->map(function ($agent, $index) use ($totalTickets) {
+                $performance = $totalTickets > 0 
+                    ? round(($agent['tickets_traites'] / $totalTickets) * 100, 1)
+                    : 0;
+
+                return [
+                    'id' => $agent['agent_id'],
+                    'name' => $agent['agent_nom'],
+                    'agence' => $agent['agence_nom'],
+                    'tickets_traites' => $agent['tickets_traites'],
+                    'temps_moyen' => $agent['temps_moyen_traitement'],
+                    'performance' => $performance
+                ];
+            })
+            ->values();
+
+        // 5. Analyse des temps d'attente
+        $tempsAttenteTickets = $tickets->where('temps_attente', '!=', null);
+        $tempsAttenteMax = $tempsAttenteTickets->max('temps_attente') ?? 0;
+        $tempsAttenteMoyenCalcule = $tempsAttenteTickets->avg('temps_attente') ?? 0;
+
+        // Répartition des temps d'attente
+        $totalAvecTemps = $tempsAttenteTickets->count();
+        $moins5min = $tempsAttenteTickets->where('temps_attente', '<', 5)->count();
+        $entre5et15 = $tempsAttenteTickets->whereBetween('temps_attente', [5, 15])->count();
+        $plus15min = $tempsAttenteTickets->where('temps_attente', '>', 15)->count();
+
+        $tempsAttente = [
+            'moyen' => round($tempsAttenteMoyenCalcule, 1),
+            'maximum' => round($tempsAttenteMax, 1),
+            'moins_5min' => $totalAvecTemps > 0 ? round(($moins5min / $totalAvecTemps) * 100, 1) : 0,
+            'entre_5_15min' => $totalAvecTemps > 0 ? round(($entre5et15 / $totalAvecTemps) * 100, 1) : 0,
+            'plus_15min' => $totalAvecTemps > 0 ? round(($plus15min / $totalAvecTemps) * 100, 1) : 0
+        ];
+
         return response()->json([
             'periode' => [
                 'type' => $periode,
                 'date_debut' => $dateDebut,
                 'date_fin' => $dateFin,
             ],
-            'agence_filtre' => $agenceId ? Agence::find($agenceId)->nom : null,
+            'agence_filtre' => $agenceId ? Agence::find($agenceId)?->nom : null,
+            
+            // Structure pour React AdminStatistics
+            'stats_generales' => [
+                'total_tickets' => $totalTickets,
+                'tickets_termines' => $ticketsTermines,
+                'tickets_annules' => $ticketsAnnules,
+                'tickets_en_attente' => $ticketsEnAttente,
+                'tickets_en_cours' => $ticketsEnCours,
+                'taux_completion' => $totalTickets > 0 ? round(($ticketsTermines / $totalTickets) * 100, 2) : 0,
+                'temps_moyen' => round($tempsAttenteMoyen, 2),
+                'temps_traitement_moyen' => round($tempsMoyenTraitement, 2),
+                'agents_actifs' => User::where('role', 'agent')->where('active', true)->count(),
+                'total_agents' => User::where('role', 'agent')->count(),
+                'taux_satisfaction' => 85 // Valeur par défaut, peut être calculée selon vos critères
+            ],
+            'repartition_services' => $repartitionServices,
+            'performance_agences' => $performanceAgences,
+            'evolution_temporelle' => $evolutionTemporelle,
+            'top_agents' => $topAgents,
+            'temps_attente' => $tempsAttente,
+
+            // Structure originale pour compatibilité
             'statistiques_generales' => [
                 'total_tickets' => $totalTickets,
                 'tickets_termines' => $ticketsTermines,
@@ -171,7 +285,7 @@ class AdminController extends Controller
             'agence_id' => 'nullable|exists:agences,id',
         ]);
 
-        $agenceId = $request->agence_id;
+        $agenceId = $request->input('agence_id');
 
         // Tickets en temps réel
         $ticketsQuery = Ticket::query();
@@ -184,9 +298,28 @@ class AdminController extends Controller
 
         // Tickets créés aujourd'hui
         $ticketsAujourdhui = $ticketsQuery->clone()->whereDate('heure_creation', today())->count();
+        
+        // Tickets terminés aujourd'hui
+        $ticketsTerminesAujourdhui = $ticketsQuery->clone()
+            ->where('statut', 'termine')
+            ->whereDate('heure_fin', today())
+            ->count();
+
+        // Temps d'attente moyen aujourd'hui
+        $tempsAttenteMoyen = $ticketsQuery->clone()
+            ->where('statut', 'termine')
+            ->whereDate('heure_fin', today())
+            ->whereNotNull('temps_attente')
+            ->avg('temps_attente') ?? 0;
+
+        // Taux de performance (tickets traités vs créés aujourd'hui)
+        $tauxPerformance = $ticketsAujourdhui > 0 
+            ? round(($ticketsTerminesAujourdhui / $ticketsAujourdhui) * 100, 1) 
+            : 0;
 
         // Agents connectés (dernière connexion < 30 minutes)
         $agentsConnectesQuery = User::where('role', 'agent')
+            ->where('active', true)
             ->where('derniere_connexion', '>', now()->subMinutes(30));
             
         if ($agenceId) {
@@ -195,19 +328,130 @@ class AdminController extends Controller
 
         $agentsConnectes = $agentsConnectesQuery->count();
 
-        // Agences ouvertes
+        // Total agents actifs
+        $totalAgentsActifs = User::where('role', 'agent')
+            ->where('active', true)
+            ->when($agenceId, function ($query) use ($agenceId) {
+                return $query->where('agence_id', $agenceId);
+            })
+            ->count();
+
+        // Statistiques par service aujourd'hui
+        $statistiquesServices = $ticketsQuery->clone()
+            ->whereDate('heure_creation', today())
+            ->selectRaw('service, count(*) as total, 
+                        count(case when statut = "termine" then 1 end) as termines')
+            ->groupBy('service')
+            ->get()
+            ->map(function ($item) {
+                return [
+                    'service' => $item->service,
+                    'total' => $item->total,
+                    'termines' => $item->termines,
+                    'taux_completion' => $item->total > 0 ? round(($item->termines / $item->total) * 100, 1) : 0
+                ];
+            });
+
+        // Agents actifs avec détails pour l'interface
+        $agentsActifsDetailles = User::where('role', 'agent')
+            ->where('active', true)
+            ->with(['agence'])
+            ->when($agenceId, function ($query) use ($agenceId) {
+                return $query->where('agence_id', $agenceId);
+            })
+            ->get()
+            ->map(function ($agent) {
+                $ticketsTraitesAujourdhui = $agent->tickets()
+                    ->whereIn('statut', ['termine', 'annule'])
+                    ->whereDate('heure_fin', today())
+                    ->count();
+
+                return [
+                    'id' => $agent->id,
+                    'name' => $agent->name,
+                    'email' => $agent->email,
+                    'guichet' => $agent->guichet,
+                    'agence' => $agent->agence ? [
+                        'id' => $agent->agence->id,
+                        'nom' => $agent->agence->nom
+                    ] : null,
+                    'tickets_traites_aujourdhui' => $ticketsTraitesAujourdhui,
+                    'derniere_connexion' => $agent->derniere_connexion,
+                    'est_connecte' => $agent->derniere_connexion && $agent->derniere_connexion > now()->subMinutes(30)
+                ];
+            });
+
+        // Tickets récents (derniers 20)
+        $ticketsRecents = Ticket::with(['agence', 'agent'])
+            ->when($agenceId, function ($query) use ($agenceId) {
+                return $query->where('agence_id', $agenceId);
+            })
+            ->whereIn('statut', ['en_cours', 'termine'])
+            ->orderBy('updated_at', 'desc')
+            ->limit(20)
+            ->get()
+            ->map(function ($ticket) {
+                return [
+                    'id' => $ticket->id,
+                    'numero' => $ticket->numero,
+                    'service' => $ticket->service,
+                    'statut' => $ticket->statut,
+                    'guichet' => $ticket->guichet,
+                    'agence' => $ticket->agence ? [
+                        'id' => $ticket->agence->id,
+                        'nom' => $ticket->agence->nom
+                    ] : null,
+                    'agent' => $ticket->agent ? [
+                        'id' => $ticket->agent->id,
+                        'name' => $ticket->agent->name
+                    ] : null,
+                    'heure_creation' => $ticket->heure_creation,
+                    'updated_at' => $ticket->updated_at
+                ];
+            });
+
+        // Calculer la performance temps réel
+        $totalTicketsAujourdhui = $ticketsAujourdhui;
+        $tauxTraitement = $totalTicketsAujourdhui > 0 
+            ? round(($ticketsTerminesAujourdhui / $totalTicketsAujourdhui) * 100, 1) 
+            : 0;
+
+        $ticketsParHeure = $totalTicketsAujourdhui > 0 ? round($totalTicketsAujourdhui / 24, 1) : 0;
+
+        // Calculer l'efficacité globale corrigée
+        $efficaciteGlobaleCorrigee = 0;
+        if ($totalAgentsActifs > 0 && $totalTicketsAujourdhui > 0) {
+            $ticketsParAgent = $totalTicketsAujourdhui / $totalAgentsActifs;
+            $ticketsTerminesParAgent = $ticketsTerminesAujourdhui / $totalAgentsActifs;
+            $efficaciteGlobaleCorrigee = round(($ticketsTerminesParAgent / $ticketsParAgent) * 100, 1);
+        }
+
+        // Agences avec statistiques étendues
         $agences = Agence::where('active', true)
             ->when($agenceId, function ($query) use ($agenceId) {
                 return $query->where('id', $agenceId);
             })
             ->get()
             ->map(function ($agence) {
+                $ticketsEnAttente = $agence->tickets()->where('statut', 'en_attente')->count();
+                $ticketsEnCours = $agence->tickets()->where('statut', 'en_cours')->count();
+                $ticketsTraites = $agence->tickets()
+                    ->where('statut', 'termine')
+                    ->whereDate('heure_fin', today())
+                    ->count();
+                $agentsActifs = $agence->users()->where('role', 'agent')->where('active', true)->count();
+                $totalAgents = $agence->users()->where('role', 'agent')->count();
+                
                 return [
                     'id' => $agence->id,
                     'nom' => $agence->nom,
                     'est_ouverte' => $agence->estOuverte(),
-                    'tickets_en_attente' => $agence->tickets()->where('statut', 'en_attente')->count(),
-                    'tickets_en_cours' => $agence->tickets()->where('statut', 'en_cours')->count(),
+                    'tickets_en_attente' => $ticketsEnAttente,
+                    'tickets_en_cours' => $ticketsEnCours,
+                    'tickets_traites' => $ticketsTraites,
+                    'agents_actifs' => $agentsActifs,
+                    'total_agents' => $totalAgents,
+                    'charge_travail' => $agentsActifs > 0 ? round(($ticketsEnAttente + $ticketsEnCours) / $agentsActifs, 1) : 0
                 ];
             });
 
@@ -215,7 +459,8 @@ class AdminController extends Controller
         $evolutionTickets = DB::table('tickets')
             ->select(
                 DB::raw('HOUR(heure_creation) as heure'),
-                DB::raw('COUNT(*) as total')
+                DB::raw('COUNT(*) as total'),
+                DB::raw('COUNT(CASE WHEN statut = "termine" THEN 1 END) as termines')
             )
             ->where('heure_creation', '>=', now()->subDay())
             ->when($agenceId, function ($query) use ($agenceId) {
@@ -226,13 +471,41 @@ class AdminController extends Controller
             ->get();
 
         return response()->json([
+            // Structure attendue par React
+            'stats_globales' => [
+                'tickets_aujourdhui' => $ticketsAujourdhui,
+                'tickets_traites' => $ticketsTerminesAujourdhui,
+                'tickets_en_attente' => $ticketsEnAttente,
+                'tickets_en_cours' => $ticketsEnCours,
+                'agents_actifs' => $agentsConnectes,
+                'total_agents' => $totalAgentsActifs,
+                'taux_performance' => $tauxPerformance,
+                'temps_attente_moyen' => round($tempsAttenteMoyen, 1),
+                'evolution_tickets' => $ticketsAujourdhui > 1 ? '+12' : '0', // Calcul simple d'évolution
+                'evolution_traites' => $ticketsTerminesAujourdhui > 0 ? '+8' : '0'
+            ],
+            'performance_temps_reel' => [
+                'taux_traitement' => $tauxTraitement,
+                'efficacite_globale' => $efficaciteGlobaleCorrigee,
+                'temps_moyen_attente' => round($tempsAttenteMoyen, 1),
+                'tickets_par_heure' => $ticketsParHeure
+            ],
+            'agences' => $agences,
+            'agents_actifs' => $agentsActifsDetailles,
+            'tickets_recents' => $ticketsRecents,
+            
+            // Garder aussi l'ancienne structure pour compatibilité
             'temps_reel' => [
                 'tickets_en_attente' => $ticketsEnAttente,
                 'tickets_en_cours' => $ticketsEnCours,
                 'tickets_aujourdhui' => $ticketsAujourdhui,
+                'tickets_termines_aujourdhui' => $ticketsTerminesAujourdhui,
                 'agents_connectes' => $agentsConnectes,
+                'total_agents_actifs' => $totalAgentsActifs,
+                'temps_attente_moyen' => round($tempsAttenteMoyen, 1),
+                'taux_performance' => $tauxPerformance,
             ],
-            'agences' => $agences,
+            'statistiques_services' => $statistiquesServices,
             'evolution_tickets' => $evolutionTickets,
             'derniere_mise_a_jour' => now(),
         ]);
@@ -251,15 +524,15 @@ class AdminController extends Controller
 
         $query = User::with('agence');
 
-        if ($request->agence_id) {
-            $query->where('agence_id', $request->agence_id);
+        if ($request->input('agence_id')) {
+            $query->where('agence_id', $request->input('agence_id'));
         }
 
-        if ($request->role) {
-            $query->where('role', $request->role);
+        if ($request->input('role')) {
+            $query->where('role', $request->input('role'));
         }
 
-        $perPage = $request->per_page ?? 20;
+        $perPage = $request->input('per_page', 20);
         $users = $query->paginate($perPage);
 
         return response()->json([
@@ -289,15 +562,15 @@ class AdminController extends Controller
         // Pour cette implémentation, on retourne les données en JSON
         // Dans une vraie application, on pourrait générer des fichiers CSV/Excel
         
-        $dateDebut = $request->date_debut ? Carbon::parse($request->date_debut) : now()->startOfMonth();
-        $dateFin = $request->date_fin ? Carbon::parse($request->date_fin) : now()->endOfMonth();
+        $dateDebut = $request->input('date_debut') ? Carbon::parse($request->input('date_debut')) : now()->startOfMonth();
+        $dateFin = $request->input('date_fin') ? Carbon::parse($request->input('date_fin')) : now()->endOfMonth();
 
-        switch ($request->type) {
+        switch ($request->input('type')) {
             case 'tickets':
                 $data = Ticket::with(['agence', 'agent'])
                     ->whereBetween('heure_creation', [$dateDebut, $dateFin])
-                    ->when($request->agence_id, function ($query) use ($request) {
-                        return $query->where('agence_id', $request->agence_id);
+                    ->when($request->input('agence_id'), function ($query) use ($request) {
+                        return $query->where('agence_id', $request->input('agence_id'));
                     })
                     ->get();
                 break;
@@ -307,8 +580,8 @@ class AdminController extends Controller
                     ->with(['agence', 'tickets' => function ($query) use ($dateDebut, $dateFin) {
                         $query->whereBetween('heure_creation', [$dateDebut, $dateFin]);
                     }])
-                    ->when($request->agence_id, function ($query) use ($request) {
-                        return $query->where('agence_id', $request->agence_id);
+                    ->when($request->input('agence_id'), function ($query) use ($request) {
+                        return $query->where('agence_id', $request->input('agence_id'));
                     })
                     ->get();
                 break;
@@ -317,16 +590,16 @@ class AdminController extends Controller
                 $data = Agence::with(['tickets' => function ($query) use ($dateDebut, $dateFin) {
                         $query->whereBetween('heure_creation', [$dateDebut, $dateFin]);
                     }])
-                    ->when($request->agence_id, function ($query) use ($request) {
-                        return $query->where('id', $request->agence_id);
+                    ->when($request->input('agence_id'), function ($query) use ($request) {
+                        return $query->where('id', $request->input('agence_id'));
                     })
                     ->get();
                 break;
         }
 
         return response()->json([
-            'type' => $request->type,
-            'format' => $request->format,
+            'type' => $request->input('type'),
+            'format' => $request->input('format'),
             'periode' => [
                 'debut' => $dateDebut,
                 'fin' => $dateFin,

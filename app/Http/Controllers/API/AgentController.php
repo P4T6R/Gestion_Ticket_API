@@ -100,6 +100,7 @@ class AgentController extends Controller
         }
 
         // Récupérer le premier ticket en attente
+        /** @var Ticket|null $ticket */
         $ticket = Ticket::where('agence_id', $agent->agence_id)
             ->where('statut', 'en_attente')
             ->orderBy('heure_creation')
@@ -149,6 +150,7 @@ class AgentController extends Controller
         /** @var User $agent */
         $agent = $request->user();
 
+        /** @var Ticket|null $ticket */
         $ticket = $agent->getTicketEnCours();
 
         if (!$ticket) {
@@ -158,7 +160,7 @@ class AgentController extends Controller
         }
 
         // Terminer le ticket
-        $success = $ticket->terminer($request->notes);
+        $success = $ticket->terminer($request->input('notes'));
 
         if (!$success) {
             return response()->json([
@@ -201,15 +203,15 @@ class AgentController extends Controller
             ->orderBy('heure_creation', 'desc');
 
         // Filtrer par période si spécifiée
-        if ($request->date_debut) {
-            $query->whereDate('heure_creation', '>=', $request->date_debut);
+        if ($request->input('date_debut')) {
+            $query->whereDate('heure_creation', '>=', $request->input('date_debut'));
         }
 
-        if ($request->date_fin) {
-            $query->whereDate('heure_creation', '<=', $request->date_fin);
+        if ($request->input('date_fin')) {
+            $query->whereDate('heure_creation', '<=', $request->input('date_fin'));
         }
 
-        $perPage = $request->per_page ?? 20;
+        $perPage = $request->input('per_page', 20);
         $tickets = $query->paginate($perPage);
 
         return response()->json([
@@ -240,7 +242,7 @@ class AgentController extends Controller
         /** @var User $agent */
         $agent = $request->user();
 
-        $periode = $request->periode ?? 'jour';
+        $periode = $request->input('periode', 'jour');
         
         // Définir la période
         switch ($periode) {

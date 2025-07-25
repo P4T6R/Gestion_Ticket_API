@@ -279,4 +279,4 @@ Ce projet est sous licence MIT. Voir le fichier `LICENSE` pour plus de détails.
 
 **Développé avec ❤️ et Laravel 10**
 
-Pour toute question : [Votre contact]
+Pour toute question : +226 57825032 / P4T6R

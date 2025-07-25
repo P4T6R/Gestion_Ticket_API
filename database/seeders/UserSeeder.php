@@ -29,7 +29,7 @@ class UserSeeder extends Seeder
             'role' => 'admin',
             'agence_id' => null, // Les admins peuvent gérer toutes les agences
             'active' => true,
-            'email_verified_at' => now(),
+            'email_verified_at' => now(), 
         ]);
 
         // Créer un admin par agence
@@ -135,7 +135,7 @@ class UserSeeder extends Seeder
             'email' => 'agent.inactif@example.com',
             'password' => Hash::make('password123'),
             'role' => 'agent',
-            'agence_id' => $agenceCentreVille?->id,
+            'agence_id' => $agenceCentreVille?->id,  
             'guichet' => 4,
             'active' => false,
             'email_verified_at' => now(),
