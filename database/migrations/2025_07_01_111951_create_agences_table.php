@@ -18,7 +18,7 @@ return new class extends Migration
             $table->decimal('latitude', 10, 8)->nullable();
             $table->decimal('longitude', 11, 8)->nullable();
             $table->boolean('active')->default(true);
-            $table->time('heure_ouverture')->default('05:00:00');
+            $table->time('heure_ouverture')->default('00:00:00');
             $table->time('heure_fermeture')->default('17:00:00');
             $table->json('jours_ouverture')->nullable(); // ['lundi', 'mardi', etc.]
             $table->timestamps();

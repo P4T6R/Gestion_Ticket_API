@@ -12,7 +12,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        // Mettre à jour toutes les agences existantes pour qu'elles ouvrent à 00:00 (minuit)
+        // Mettre à jour toutes les agences existantes pour qu'elles ouvrent à 00:00 (minuit - 24h/24)
         DB::table('agences')->update([
             'heure_ouverture' => '00:00:00'
         ]);
